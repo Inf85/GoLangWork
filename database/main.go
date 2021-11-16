@@ -1,12 +1,13 @@
 package main
 
 import (
+	"./db_connection"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"./db_connection"
 	"strconv"
+	"strings"
 )
 
 const postsUri string = "https://jsonplaceholder.typicode.com/posts"
@@ -21,6 +22,7 @@ type Post struct {
 }
 
 type Comments struct {
+	Id int
 	PostId int
 	Name string
 	Email string
@@ -41,6 +43,9 @@ func main() {
 	fmt.Scanln(&input)
 }
 
+/**
+Get Posts
+ */
 func getPosts() []Post {
 	var post []Post
 	response, err := http.Get(postsUri + "?userId=" + userId)
@@ -67,6 +72,9 @@ func getPosts() []Post {
 	return post
 }
 
+/**
+Get Comments
+ */
 func getComments(postId int, c chan []Comments)   {
 	var comments []Comments
 	var strPostId string = strconv.Itoa(postId)
@@ -94,6 +102,9 @@ func getComments(postId int, c chan []Comments)   {
 	c <- comments
 }
 
+/**
+Save Comment to Data Base
+ */
 func saveComments(c chan []Comments)  {
 	var comments []Comments
 
@@ -103,32 +114,33 @@ func saveComments(c chan []Comments)  {
 	comments = <- c
 
 	for i := range comments{
-
-		res, err := db.Query(fmt.Sprintf("INSERT into `comments` (`post_id`, `email`, `name`, `body`) " +
-			"VALUES ('%d', '%s', '%s', '%s')", comments[i].PostId,comments[i].Email, comments[i].Name, comments[i].Body))
-
+		stmt, err := db.Prepare(`INSERT into comments (id,post_id,email,name,body) VALUES (?,?,?,?,?)
+		ON DUPLICATE KEY UPDATE post_id=?, email=?, name=?, body=?`)
 		if err != nil{
 			panic(err)
 		}
-		res.Close()
+		stmt.Exec(comments[i].Id,comments[i].PostId, comments[i].Email,comments[i].Name, comments[i].Body,comments[i].PostId, comments[i].Email,comments[i].Name, comments[i].Body)
 	}
 }
 
+/**
+Save Post to DataBase
+ */
 func savePosts(posts []Post)  {
 	db := db_connection.SetConnection()
 	defer db.Close()
 
 	for i := range posts {
+        var bodyText string =  strings.ReplaceAll(posts[i].Body,"\n","")
+		fmt.Println(bodyText)
 
-		res, err := db.Query(fmt.Sprintf("INSERT IGNORE  into `posts` (`user_id`, `title`, `body`) " +
-			"VALUES ('%d', '%s', '%s')", posts[i].UserId,posts[i].Title, posts[i].Body) +
-			" SELECT * FROM (SELECT " +strconv.Itoa(posts[i].UserId)+",'"+posts[i].Title + "','"+ posts[i].Body+"') AS tmp WHERE NOT EXISTS ( " +
-				" SELECT `user_id`, `title`, `body` FROM `posts` WHERE user_id = "+strconv.Itoa(posts[i].UserId)+" and title="+posts[i].Title+" and body="+posts[i].Body+") LIMIT1")
+        stmt, err := db.Prepare(`INSERT into posts (id,user_id,title,body) VALUES (?,?,?,?)
+		ON DUPLICATE KEY UPDATE user_id=?, title=?, body=?`)
 
 		if err != nil{
 			panic(err)
 		}
-		res.Close()
+		stmt.Exec(posts[i].Id,posts[i].UserId, posts[i].Title, bodyText,posts[i].UserId, posts[i].Title, bodyText)
 	}
 
 }
